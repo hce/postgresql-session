@@ -1,6 +1,6 @@
 module Main where
 
-import Lib
+import Network.Wai.Session.PostgreSQL
 
 main :: IO ()
-main = someFunc
+main = undefined
