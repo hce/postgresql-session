@@ -36,7 +36,7 @@ qryLookupSession''  = "SELECT session_value FROM session WHERE session_key=?"
 
 dbStore :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> IO (SessionStore m k v)
 dbStore pool stos = do
-    withPostgreSQLConn pool $ \ conn -> do
+    withPostgreSQLConn pool $ \ conn ->
         unerror $ execute_ conn qryCreateTable
     return $ dbStore' pool stos
 
@@ -60,7 +60,7 @@ dbStore' pool stos (Just key) = do
         _           -> dbStore' pool stos Nothing
 
 backend :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> [(k, v)] -> IO (Session m k v, IO B.ByteString)
-backend pool key mappe = do
+backend pool key mappe =
     return ( (
         (reader pool key mappe)
       , (writer pool key mappe) )
@@ -72,12 +72,11 @@ reader pool key mappe k = do
     res <- liftIO $ withPostgreSQLConn pool $ \conn -> do
         void $ execute conn qryLookupSession' (curtime :: Int64, key)
         query conn qryLookupSession'' (Only key)
-    res' <- case res of
+    case res of
         [Only store']    -> case decode (fromBinary store') of
             Right store     -> return $ k `lookup` store
             Left error      -> return Nothing
         []              -> return Nothing
-    return res'
 
 writer :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> [(k, v)] -> k -> v -> m ()
 writer pool key mappe k v = do
@@ -87,7 +86,7 @@ writer pool key mappe k v = do
     let store'      = case decode (fromBinary store) of
             Right s             -> s
             _                   -> []
-        store''     = ((k,v):) . (filter ((/=k) . fst)) $ store'
+        store''     = ((k,v):) . filter ((/=k) . fst) $ store'
         store'''    = encode store''
     liftIO $ withPostgreSQLConn pool $ \conn ->
         void $ execute conn qryUpdateSession (Binary store''', curtime :: Int64, key)
