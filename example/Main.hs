@@ -7,7 +7,7 @@ import Database.PostgreSQL.Simple
 import Numeric (showHex)
 import Network.Wai
 import Network.Wai.Session (withSession, Session)
-import Network.Wai.Session.PostgreSQL ( dbStore, StoreSettings (..) )
+import Network.Wai.Session.PostgreSQL
 import Network.Wai.Handler.Warp (run)
 import Network.HTTP.Types (ok200)
 import System.Entropy (getEntropy)
@@ -31,13 +31,11 @@ main = do
     conn <- dbconnect
     session <- Vault.newKey
     store <- dbStore conn settings
+    purger conn settings
     run 3000 $ withSession store (fromString "SESSION") def session $ app session
 
 settings :: StoreSettings
-settings = StoreSettings
-    { storeSettingsSessionTimeout=3600
-    , storeSettingsKeyGen=genSessionKey
-    }
+settings = defaultSettings
 
 genSessionKey :: IO B.ByteString
 genSessionKey =
