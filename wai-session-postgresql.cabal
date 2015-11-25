@@ -2,12 +2,12 @@ name:                wai-session-postgresql
 version:             0.1.0.1
 synopsis:            PostgreSQL backed Wai session store
 description:         Provides a PostgreSQL backed session store for the Network.Wai.Session interface.
-homepage:            http://github.com/hce/postgresql-session#readme
+homepage:            https://github.com/hce/postgresql-session#readme
+bug-reports:         https://github.com/hce/postgresql-session/issues
 license:             BSD3
 license-file:        LICENSE
 author:              Hans-Christian Esperer hc@hcesperer.org
 maintainer:          Hans-Christian Esperer hc@hcesperer.org
-homepage:            https://github.com/hce/postgresql-session
 copyright:           2015 Hans-Christian Esperer
 stability:           experimental
 tested-with:         GHC == 7.10.2
@@ -41,4 +41,4 @@ test-suite postgresql-session-test
 
 source-repository head
   type:     git
-  location: https://github.com/githubuser/postgresql-session
+  location: https://github.com/hce/postgresql-session
