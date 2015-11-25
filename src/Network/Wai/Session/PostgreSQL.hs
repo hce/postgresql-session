@@ -16,12 +16,28 @@ import Network.Wai.Session
 
 import qualified Data.ByteString as B
 
-data StoreSettings = StoreSettings
-    { storeSettingsSessionTimeout :: Int64
+-- |These settings control how the session store is behaving
+data StoreSettings = StoreSettings {
+    -- |The number of seconds a session is valid
+    -- Seconds are counted since the session is last accessed (read or written),
+    -- not since it was created.
+      storeSettingsSessionTimeout :: Int64
+    -- |A random session key generator. The session ID should provide
+    -- sufficient entropy, and must not be predictable. It is recommended
+    -- to use a cryptographically secure random number generator.
     , storeSettingsKeyGen :: IO B.ByteString
     }
 
+-- |By default, you pass a postgresql connection to the session store
+-- when creating it. The passed connection will have to stay open
+-- for the (possibly very long) existence of the session and it should
+-- not be used for any other purpose during that time.
+-- You can implement an instance of this class for a connection pool
+-- instead, so that the session manager will not require a permanent
+-- open PostgreSQL connection.
 class WithPostgreSQLConn a where
+    -- |Call the function (Connection -> IO b) with a valid and open
+    -- PostgreSQL connection.
     withPostgreSQLConn :: a -> (Connection -> IO b) -> IO b
 
 instance WithPostgreSQLConn Connection where
@@ -34,6 +50,7 @@ qryLookupSession    = "SELECT session_value FROM session WHERE session_key=? AND
 qryLookupSession'   = "UPDATE session SET session_last_access=? WHERE session_key=?"
 qryLookupSession''  = "SELECT session_value FROM session WHERE session_key=?"
 
+-- |Create a new postgresql backed wai session store.
 dbStore :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> IO (SessionStore m k v)
 dbStore pool stos = do
     withPostgreSQLConn pool $ \ conn ->
