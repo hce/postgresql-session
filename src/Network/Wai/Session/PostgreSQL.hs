@@ -1,9 +1,14 @@
 module Network.Wai.Session.PostgreSQL
     ( dbStore
+    , defaultSettings
+    , purgeOldSessions
+    , purger
+    , ratherSecureGen
     , WithPostgreSQLConn (..)
     , StoreSettings (..)
     ) where
 
+import Control.Concurrent
 import Control.Exception.Base
 import Control.Exception
 import Control.Monad
@@ -13,8 +18,12 @@ import Data.Serialize (encode, decode, Serialize)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple
 import Network.Wai.Session
+import Numeric (showHex)
+import System.Entropy (getEntropy)
 
 import qualified Data.ByteString as B
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 
 -- |These settings control how the session store is behaving
 data StoreSettings = StoreSettings {
@@ -26,6 +35,16 @@ data StoreSettings = StoreSettings {
     -- sufficient entropy, and must not be predictable. It is recommended
     -- to use a cryptographically secure random number generator.
     , storeSettingsKeyGen :: IO B.ByteString
+    -- |Whether to create the database table if it does not exist upon
+    -- creating the session store. If set to false, the database table
+    -- must exist or be created by some other means.
+    , storeSettingsCreateTable :: Bool
+    -- |A function that is called by to log events such as session
+    -- purges or the table creation.
+    , storeSettingsLog :: String -> IO ()
+    -- |The number of microseconds to sleep between two runs of the
+    -- old session purge worker.
+    , storeSettingsPurgeInterval :: Int
     }
 
 -- |By default, you pass a postgresql connection to the session store
@@ -49,13 +68,51 @@ qryUpdateSession    = "UPDATE session SET session_value=?,session_last_access=? 
 qryLookupSession    = "SELECT session_value FROM session WHERE session_key=? AND session_last_access>=?"
 qryLookupSession'   = "UPDATE session SET session_last_access=? WHERE session_key=?"
 qryLookupSession''  = "SELECT session_value FROM session WHERE session_key=?"
+qryPurgeOldSessions = "DELETE FROM session WHERE session_last_access<?"
 
 -- |Create a new postgresql backed wai session store.
 dbStore :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> IO (SessionStore m k v)
 dbStore pool stos = do
-    withPostgreSQLConn pool $ \ conn ->
-        unerror $ execute_ conn qryCreateTable
+    when (storeSettingsCreateTable stos) $
+        withPostgreSQLConn pool $ \ conn ->
+            unerror $ execute_ conn qryCreateTable
     return $ dbStore' pool stos
+
+-- |Delete expired sessions from the database.
+purgeOldSessions :: WithPostgreSQLConn a => a -> StoreSettings -> IO Int64
+purgeOldSessions pool stos = do
+    curtime <- round <$> liftIO getPOSIXTime
+    count <- withPostgreSQLConn pool $ \ conn ->
+        execute conn qryPurgeOldSessions (Only (curtime - storeSettingsSessionTimeout stos))
+    storeSettingsLog stos $ "Purged " ++ show count ++ " session(s)."
+    return count
+
+-- |Run a thread using forkIO that runs periodically to
+-- purge old sessions.
+purger :: WithPostgreSQLConn a => a -> StoreSettings -> IO ThreadId
+purger pool stos = forkIO . forever . unerror $ do
+    purgeOldSessions pool stos
+    threadDelay $ storeSettingsPurgeInterval stos
+
+-- |Create default settings using a session timeout of
+-- one hour, a cryptographically secure session id generator
+-- using 24 bytes of entropy and putStrLn to log events
+-- to stdout.
+defaultSettings :: StoreSettings
+defaultSettings = StoreSettings
+    { storeSettingsSessionTimeout=3600
+    , storeSettingsKeyGen=ratherSecureGen 24
+    , storeSettingsCreateTable=True
+    , storeSettingsLog=putStrLn
+    , storeSettingsPurgeInterval=600000000
+    }
+
+-- |Generate a session ID with n bytes of entropy
+ratherSecureGen :: Int -> IO B.ByteString
+ratherSecureGen n = TE.encodeUtf8 . prettyPrint <$> getEntropy n
+
+prettyPrint :: B.ByteString -> T.Text
+prettyPrint = T.pack . concatMap (`showHex` "") . B.unpack
 
 dbStore' :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> SessionStore m k v
 dbStore' pool stos Nothing = do
