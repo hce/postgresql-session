@@ -69,6 +69,7 @@ qryLookupSession    = "SELECT session_value FROM session WHERE session_key=? AND
 qryLookupSession'   = "UPDATE session SET session_last_access=? WHERE session_key=?"
 qryLookupSession''  = "SELECT session_value FROM session WHERE session_key=?"
 qryPurgeOldSessions = "DELETE FROM session WHERE session_last_access<?"
+qryUpdateKey        = "UPDATE session SET session_key=? WHERE session_key=?"
 
 -- |Create a new postgresql backed wai session store.
 dbStore :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> IO (SessionStore m k v)
@@ -122,7 +123,7 @@ dbStore' pool stos Nothing = do
     curtime <- round <$> liftIO getPOSIXTime
     withPostgreSQLConn pool $ \ conn ->
         void $ execute conn qryCreateSession (newKey, curtime :: Int64, curtime, map' :: B.ByteString)
-    backend pool newKey map
+    backend pool stos newKey map
 dbStore' pool stos (Just key) = do
     let map     = [] :: [(k, v)]
         map'    = "\"\"" -- encode map
@@ -130,15 +131,18 @@ dbStore' pool stos (Just key) = do
     res <- withPostgreSQLConn pool $ \ conn ->
         query conn qryLookupSession (key, curtime - storeSettingsSessionTimeout stos) :: IO [Only B.ByteString]
     case res of
-        [Only _]    -> backend pool key map
+        [Only _]    -> backend pool stos key map
         _           -> dbStore' pool stos Nothing
 
-backend :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> [(k, v)] -> IO (Session m k v, IO B.ByteString)
-backend pool key mappe =
+backend :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> B.ByteString -> [(k, v)] -> IO (Session m k v, IO B.ByteString)
+backend pool stos key mappe = do
+    newKey <- storeSettingsKeyGen stos
+    withPostgreSQLConn pool $ \conn ->
+        execute conn qryUpdateKey (newKey, key)
     return ( (
-        (reader pool key mappe)
-      , (writer pool key mappe) )
-     , return key )
+        (reader pool newKey mappe)
+      , (writer pool newKey mappe) )
+     , return newKey )
 
 reader :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> [(k, v)] -> k -> m (Maybe v)
 reader pool key mappe k = do
