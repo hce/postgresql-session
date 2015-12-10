@@ -1,6 +1,7 @@
 module Network.Wai.Session.PostgreSQL
     ( dbStore
     , defaultSettings
+    , clearSession
     , purgeOldSessions
     , purger
     , ratherSecureGen
@@ -15,11 +16,14 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.Int (Int64)
 import Data.Serialize (encode, decode, Serialize)
+import Data.String (fromString)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple
+import Network.Wai (Request, requestHeaders)
 import Network.Wai.Session
 import Numeric (showHex)
 import System.Entropy (getEntropy)
+import Web.Cookie (parseCookies)
 
 import qualified Data.ByteString as B
 import qualified Data.Text as T
@@ -62,14 +66,16 @@ class WithPostgreSQLConn a where
 instance WithPostgreSQLConn Connection where
     withPostgreSQLConn conn = bracket (return conn) (\_ -> return ())
 
-qryCreateTable      = "CREATE TABLE session (id bigserial NOT NULL, session_key character varying NOT NULL, session_created_at bigint NOT NULL, session_last_access bigint NOT NULL, session_value bytea NOT NULL, CONSTRAINT session_pkey PRIMARY KEY (id), CONSTRAINT session_session_key_key UNIQUE (session_key)) WITH (OIDS=FALSE);"
+qryCreateTable      = "CREATE TABLE session (id bigserial NOT NULL, session_key character varying NOT NULL, session_created_at bigint NOT NULL, session_last_access bigint NOT NULL, session_value bytea NOT NULL, session_invalidate_key bool NOT NULL DEFAULT FALSE, CONSTRAINT session_pkey PRIMARY KEY (id), CONSTRAINT session_session_key_key UNIQUE (session_key)) WITH (OIDS=FALSE);"
 qryCreateSession    = "INSERT INTO session (session_key, session_created_at, session_last_access, session_value) VALUES (?,?,?,?)"
 qryUpdateSession    = "UPDATE session SET session_value=?,session_last_access=? WHERE session_key=?"
 qryLookupSession    = "SELECT session_value FROM session WHERE session_key=? AND session_last_access>=?"
 qryLookupSession'   = "UPDATE session SET session_last_access=? WHERE session_key=?"
 qryLookupSession''  = "SELECT session_value FROM session WHERE session_key=?"
 qryPurgeOldSessions = "DELETE FROM session WHERE session_last_access<?"
-qryUpdateKey        = "UPDATE session SET session_key=? WHERE session_key=?"
+qryCheckNewKey      = "SELECT session_invalidate_key FROM session WHERE session_key=?"
+qryInvalidateSess   = "UPDATE session SET session_value=?,session_invalidate_key=TRUE WHERE session_key=?"
+qryUpdateKey        = "UPDATE session SET session_key=?,session_invalidate_key=FALSE WHERE session_key=?"
 
 -- |Create a new postgresql backed wai session store.
 dbStore :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> IO (SessionStore m k v)
@@ -122,7 +128,7 @@ dbStore' pool stos Nothing = do
         map'    = "" -- encode map
     curtime <- round <$> liftIO getPOSIXTime
     withPostgreSQLConn pool $ \ conn ->
-        void $ execute conn qryCreateSession (newKey, curtime :: Int64, curtime, map' :: B.ByteString)
+        void $ execute conn qryCreateSession (newKey, curtime :: Int64, curtime, Binary (map' :: B.ByteString))
     backend pool stos newKey map
 dbStore' pool stos (Just key) = do
     let map     = [] :: [(k, v)]
@@ -134,15 +140,37 @@ dbStore' pool stos (Just key) = do
         [Only _]    -> backend pool stos key map
         _           -> dbStore' pool stos Nothing
 
+-- |This function can be called to invalidate a session and enforce creating
+-- a new one with a new session ID. It should be called *before* and calls
+-- to sessionStore are made. It needs to be passed a request and the cookie
+-- name explicitly due to the limited nature of the Network.Wai.Session
+-- interface.
+-- Sessions should be cleared when a login is performed, to prevent certain
+-- kinds of session hijacking attacks.
+clearSession :: (WithPostgreSQLConn a) => a -> B.ByteString -> Request -> IO ()
+clearSession pool cookieName req = do
+    let map         = [] :: [(k, v)]
+        map'        = "" -- encode map
+        cookies     = fmap parseCookies $ lookup (fromString "Cookie") (requestHeaders req)
+        Just key    = lookup cookieName =<< cookies
+    withPostgreSQLConn pool $ \ conn ->
+        void $ execute conn qryInvalidateSess (Binary (map' :: B.ByteString), key)
+
 backend :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> B.ByteString -> [(k, v)] -> IO (Session m k v, IO B.ByteString)
 backend pool stos key mappe = do
-    newKey <- storeSettingsKeyGen stos
-    withPostgreSQLConn pool $ \conn ->
-        execute conn qryUpdateKey (newKey, key)
+
     return ( (
-        (reader pool newKey mappe)
-      , (writer pool newKey mappe) )
-     , return newKey )
+        (reader pool key mappe)
+      , (writer pool key mappe) ), withPostgreSQLConn pool $ \conn -> do
+        [Only shouldNewKey] <- query conn qryCheckNewKey (Only key)
+        if shouldNewKey then do
+            newKey' <- storeSettingsKeyGen stos
+            execute conn qryUpdateKey (newKey', key)
+            return newKey'
+        else
+            return key
+      )
+
 
 reader :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> [(k, v)] -> k -> m (Maybe v)
 reader pool key mappe k = do
