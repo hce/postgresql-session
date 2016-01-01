@@ -14,6 +14,7 @@ import Control.Exception.Base
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
+import Data.Default
 import Data.Int (Int64)
 import Data.Serialize (encode, decode, Serialize)
 import Data.String (fromString)
@@ -50,6 +51,9 @@ data StoreSettings = StoreSettings {
     -- old session purge worker.
     , storeSettingsPurgeInterval :: Int
     }
+
+instance Default StoreSettings where
+    def = defaultSettings
 
 -- |By default, you pass a postgresql connection to the session store
 -- when creating it. The passed connection will have to stay open
