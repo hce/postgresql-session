@@ -145,7 +145,7 @@ dbStore' pool stos (Just key) = do
         _           -> dbStore' pool stos Nothing
 
 -- |This function can be called to invalidate a session and enforce creating
--- a new one with a new session ID. It should be called *before* and calls
+-- a new one with a new session ID. It should be called *before* any calls
 -- to sessionStore are made. It needs to be passed a request and the cookie
 -- name explicitly due to the limited nature of the Network.Wai.Session
 -- interface.
