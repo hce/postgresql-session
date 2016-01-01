@@ -1,6 +1,8 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- copied from https://github.com/singpolyma/wai-session/blob/master/example/Main.hs and modified
 module Main where
 
+import Control.Monad
 import Data.Default (def)
 import Data.String (fromString)
 import Database.PostgreSQL.Simple
@@ -17,9 +19,12 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vault.Lazy as Vault
 
-app :: Vault.Key (Session IO String String) -> Application
-app session env = (>>=) $ do
+app :: Connection -> Vault.Key (Session IO String String) -> Application
+app pool session env = (>>=) $ do
     u <- sessionLookup "u"
+    when (pathInfo env == ["login"]) $ do
+        putStrLn "Login -- new session required!"
+        clearSession pool "SESSION" env
     sessionInsert "u" insertThis
     return $ responseLBS ok200 [] $ maybe (fromString "Nothing") fromString u
     where
@@ -30,12 +35,9 @@ main :: IO ()
 main = do
     conn <- dbconnect
     session <- Vault.newKey
-    store <- dbStore conn settings
-    purger conn settings
-    run 3000 $ withSession store (fromString "SESSION") def session $ app session
-
-settings :: StoreSettings
-settings = defaultSettings
+    store <- dbStore conn def
+    purger conn def
+    run 3000 $ withSession store (fromString "SESSION") def session $ app conn session
 
 genSessionKey :: IO B.ByteString
 genSessionKey =
