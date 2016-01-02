@@ -70,23 +70,60 @@ class WithPostgreSQLConn a where
 instance WithPostgreSQLConn Connection where
     withPostgreSQLConn conn = bracket (return conn) (\_ -> return ())
 
-qryCreateTable      = "CREATE TABLE session (id bigserial NOT NULL, session_key character varying NOT NULL, session_created_at bigint NOT NULL, session_last_access bigint NOT NULL, session_value bytea NOT NULL, session_invalidate_key bool NOT NULL DEFAULT FALSE, CONSTRAINT session_pkey PRIMARY KEY (id), CONSTRAINT session_session_key_key UNIQUE (session_key)) WITH (OIDS=FALSE);"
-qryCreateSession    = "INSERT INTO session (session_key, session_created_at, session_last_access, session_value) VALUES (?,?,?,?)"
-qryUpdateSession    = "UPDATE session SET session_value=?,session_last_access=? WHERE session_key=?"
-qryLookupSession    = "SELECT session_value FROM session WHERE session_key=? AND session_last_access>=?"
-qryLookupSession'   = "UPDATE session SET session_last_access=? WHERE session_key=?"
-qryLookupSession''  = "SELECT session_value FROM session WHERE session_key=?"
-qryPurgeOldSessions = "DELETE FROM session WHERE session_last_access<?"
-qryCheckNewKey      = "SELECT session_invalidate_key FROM session WHERE session_key=?"
-qryInvalidateSess   = "UPDATE session SET session_value=?,session_invalidate_key=TRUE WHERE session_key=?"
-qryUpdateKey        = "UPDATE session SET session_key=?,session_invalidate_key=FALSE WHERE session_key=?"
+qryCreateTable1 :: Query
+qryCreateTable1         = "CREATE TABLE wai_pg_sessions (id bigserial NOT NULL, session_key character varying NOT NULL, session_created_at bigint NOT NULL, session_last_access bigint NOT NULL, session_invalidate_key boolean NOT NULL DEFAULT false, CONSTRAINT session_pkey PRIMARY KEY (id), CONSTRAINT session_session_key_key UNIQUE (session_key)) WITH ( OIDS=FALSE );"
+
+qryCreateTable2 :: Query
+qryCreateTable2         = "CREATE TABLE wai_pg_session_data ( id bigserial NOT NULL, wai_pg_session bigint, key bytea, value bytea, CONSTRAINT wai_pg_session_data_pkey PRIMARY KEY (id), CONSTRAINT wai_pg_session_data_wai_pg_session_fkey FOREIGN KEY (wai_pg_session) REFERENCES wai_pg_sessions (id) MATCH SIMPLE ON UPDATE RESTRICT ON DELETE CASCADE, CONSTRAINT wai_pg_session_data_wai_pg_session_key_key UNIQUE (wai_pg_session, key) ) WITH (OIDS=FALSE);"
+
+qryCreateSession :: Query
+qryCreateSession        = "INSERT INTO wai_pg_sessions (session_key, session_created_at, session_last_access) VALUES (?,?,?) RETURNING id"
+
+qryCreateSessionEntry :: Query
+qryCreateSessionEntry   = "INSERT INTO wai_pg_session_data (wai_pg_session,key,value) VALUES (?,?,?)"
+
+qryUpdateSession :: Query
+qryUpdateSession        = "UPDATE wai_pg_sessions SET session_last_access=? WHERE id=?"
+
+qryUpdateSessionEntry :: Query
+qryUpdateSessionEntry   = "UPDATE wai_pg_session_data SET value=? WHERE wai_pg_session=? AND key=?"
+
+qryLookupSession :: Query
+qryLookupSession        = "SELECT id FROM wai_pg_sessions WHERE session_key=? AND session_last_access>=?"
+
+qryLookupSession' :: Query
+qryLookupSession'       = "UPDATE wai_pg_sessions SET session_last_access=? WHERE id=?"
+
+qryLookupSession'' :: Query
+qryLookupSession''      = "SELECT value FROM wai_pg_session_data WHERE wai_pg_session=? AND key=?"
+
+qryLookupSession''' :: Query
+qryLookupSession'''     = "SELECT id FROM wai_pg_session_data WHERE wai_pg_session=? AND key=?"
+
+qryPurgeOldSessions :: Query
+qryPurgeOldSessions     = "DELETE FROM wai_pg_sessions WHERE session_last_access<?"
+
+qryCheckNewKey :: Query
+qryCheckNewKey          = "SELECT session_invalidate_key FROM wai_pg_sessions WHERE session_key=?"
+
+qryInvalidateSess1 :: Query
+qryInvalidateSess1      = "UPDATE wai_pg_sessions SET session_invalidate_key=TRUE WHERE session_key=?"
+
+qryInvalidateSess2 :: Query
+qryInvalidateSess2      = "DELETE FROM wai_pg_session_data WHERE wai_pg_session=(SELECT id FROM wai_pg_sessions WHERE session_key=?)"
+
+qryUpdateKey :: Query
+qryUpdateKey            = "UPDATE wai_pg_sessions SET session_key=?,session_invalidate_key=FALSE WHERE session_key=?"
 
 -- |Create a new postgresql backed wai session store.
 dbStore :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> IO (SessionStore m k v)
 dbStore pool stos = do
     when (storeSettingsCreateTable stos) $
         withPostgreSQLConn pool $ \ conn ->
-            unerror $ execute_ conn qryCreateTable
+            unerror $ do
+                void $ execute_ conn qryCreateTable1
+                void $ execute_ conn qryCreateTable2
+                (storeSettingsLog stos) "Created tables."
     return $ dbStore' pool stos
 
 -- |Delete expired sessions from the database.
@@ -128,21 +165,18 @@ prettyPrint = T.pack . concatMap (`showHex` "") . B.unpack
 dbStore' :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> SessionStore m k v
 dbStore' pool stos Nothing = do
     newKey <- storeSettingsKeyGen stos
-    let map     = [] :: [(k, v)]
-        map'    = "" -- encode map
     curtime <- round <$> liftIO getPOSIXTime
-    withPostgreSQLConn pool $ \ conn ->
-        void $ execute conn qryCreateSession (newKey, curtime :: Int64, curtime, Binary (map' :: B.ByteString))
-    backend pool stos newKey map
+    sessionPgId <- withPostgreSQLConn pool $ \ conn -> do
+        [Only res] <- query conn qryCreateSession (newKey, curtime :: Int64, curtime) :: IO [Only Int64]
+        return (res :: Int64)
+    backend pool stos newKey sessionPgId
 dbStore' pool stos (Just key) = do
-    let map     = [] :: [(k, v)]
-        map'    = "\"\"" -- encode map
     curtime <- round <$> liftIO getPOSIXTime
     res <- withPostgreSQLConn pool $ \ conn ->
-        query conn qryLookupSession (key, curtime - storeSettingsSessionTimeout stos) :: IO [Only B.ByteString]
+        query conn qryLookupSession (key, curtime - storeSettingsSessionTimeout stos) :: IO [Only Int64]
     case res of
-        [Only _]    -> backend pool stos key map
-        _           -> dbStore' pool stos Nothing
+        [Only sessionPgId]  -> backend pool stos key sessionPgId
+        _                   -> dbStore' pool stos Nothing
 
 -- |This function can be called to invalidate a session and enforce creating
 -- a new one with a new session ID. It should be called *before* any calls
@@ -158,14 +192,15 @@ clearSession pool cookieName req = do
         cookies     = fmap parseCookies $ lookup (fromString "Cookie") (requestHeaders req)
         Just key    = lookup cookieName =<< cookies
     withPostgreSQLConn pool $ \ conn ->
-        void $ execute conn qryInvalidateSess (Binary (map' :: B.ByteString), key)
+        withTransaction conn $ do
+            void $ execute conn qryInvalidateSess1 (Only key)
+            void $ execute conn qryInvalidateSess2 (Only key)
 
-backend :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> B.ByteString -> [(k, v)] -> IO (Session m k v, IO B.ByteString)
-backend pool stos key mappe = do
-
+backend :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> B.ByteString -> Int64 -> IO (Session m k v, IO B.ByteString)
+backend pool stos key sessionPgId = do
     return ( (
-        (reader pool key mappe)
-      , (writer pool key mappe) ), withPostgreSQLConn pool $ \conn -> do
+        (reader pool key sessionPgId)
+      , (writer pool key sessionPgId) ), withPostgreSQLConn pool $ \conn -> do
         [Only shouldNewKey] <- query conn qryCheckNewKey (Only key)
         if shouldNewKey then do
             newKey' <- storeSettingsKeyGen stos
@@ -176,31 +211,30 @@ backend pool stos key mappe = do
       )
 
 
-reader :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> [(k, v)] -> k -> m (Maybe v)
-reader pool key mappe k = do
+reader :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> Int64 -> k -> m (Maybe v)
+reader pool key sessionPgId k = do
     curtime <- round <$> liftIO getPOSIXTime
     res <- liftIO $ withPostgreSQLConn pool $ \conn -> do
-        void $ execute conn qryLookupSession' (curtime :: Int64, key)
-        query conn qryLookupSession'' (Only key)
+        void $ execute conn qryLookupSession' (curtime :: Int64, sessionPgId)
+        query conn qryLookupSession'' (sessionPgId, Binary $ encode k)
     case res of
-        [Only store']    -> case decode (fromBinary store') of
-            Right store     -> return $ k `lookup` store
+        [Only value]    -> case decode (fromBinary value) of
+            Right value'    -> return $ Just value'
             Left error      -> return Nothing
         []              -> return Nothing
 
-writer :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> [(k, v)] -> k -> v -> m ()
-writer pool key mappe k v = do
+writer :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> Int64 -> k -> v -> m ()
+writer pool key sessionPgId k v = do
     curtime <- round <$> liftIO getPOSIXTime
-    [Only store] <- liftIO $ withPostgreSQLConn pool $ \conn ->
-        query conn qryLookupSession'' (Only key)
-    let store'      = case decode (fromBinary store) of
-            Right s             -> s
-            _                   -> []
-        store''     = ((k,v):) . filter ((/=k) . fst) $ store'
-        store'''    = encode store''
+    let k' = Binary $ encode k
+        v' = Binary $ encode v
     liftIO $ withPostgreSQLConn pool $ \conn ->
-        void $ execute conn qryUpdateSession (Binary store''', curtime :: Int64, key)
-
+        withTransaction conn $ do
+            res <- query conn qryLookupSession''' (sessionPgId, k') :: IO [Only Int64]
+            case res of
+                [Only id]   -> void $ execute conn qryUpdateSessionEntry (v', sessionPgId, k')
+                _           -> void $ execute conn qryCreateSessionEntry (sessionPgId, k', v')
+            void $ execute conn qryUpdateSession (curtime :: Int64, sessionPgId)
 
 ignoreSqlError :: SqlError -> IO ()
 ignoreSqlError _ = pure ()
