@@ -5,6 +5,7 @@ module Main where
 import Control.Monad
 import Data.Default (def)
 import Data.String (fromString)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple
 import Numeric (showHex)
 import Network.Wai
@@ -20,13 +21,16 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Vault.Lazy as Vault
 
 app :: Connection -> Vault.Key (Session IO String String) -> Application
-app pool session env = (>>=) $ do
-    u <- sessionLookup "u"
+app conn session env = (>>=) $ do
+    u <- (,) <$> sessionLookup "u" <*> sessionLookup "d"
     when (pathInfo env == ["login"]) $ do
         putStrLn "Login -- new session required!"
-        clearSession pool "SESSION" env
+        conn' <- fromSimpleConnection conn
+        clearSession conn' "SESSION" env
     sessionInsert "u" insertThis
-    return $ responseLBS ok200 [] $ maybe (fromString "Nothing") fromString u
+    curtime <- round <$> getPOSIXTime
+    sessionInsert "d" $ show curtime
+    return $ responseLBS ok200 [] $ maybe (fromString "Nothing") fromString $ Just $ show u
     where
         insertThis = show $ pathInfo env
         Just (sessionLookup, sessionInsert) = Vault.lookup session (vault env)
@@ -35,8 +39,9 @@ main :: IO ()
 main = do
     conn <- dbconnect
     session <- Vault.newKey
-    store <- dbStore conn def
-    purger conn def
+    conn' <- fromSimpleConnection conn
+    store <- dbStore conn' def
+    purger conn' def
     run 3000 $ withSession store (fromString "SESSION") def session $ app conn session
 
 genSessionKey :: IO B.ByteString

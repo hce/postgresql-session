@@ -1,15 +1,18 @@
 module Network.Wai.Session.PostgreSQL
-    ( dbStore
+    ( clearSession
+    , dbStore
     , defaultSettings
-    , clearSession
+    , fromSimpleConnection
     , purgeOldSessions
     , purger
     , ratherSecureGen
-    , WithPostgreSQLConn (..)
+    , SimpleConnection
     , StoreSettings (..)
+    , WithPostgreSQLConn (..)
     ) where
 
 import Control.Concurrent
+import Control.Concurrent.MVar
 import Control.Exception.Base
 import Control.Exception
 import Control.Monad
@@ -67,8 +70,23 @@ class WithPostgreSQLConn a where
     -- PostgreSQL connection.
     withPostgreSQLConn :: a -> (Connection -> IO b) -> IO b
 
-instance WithPostgreSQLConn Connection where
-    withPostgreSQLConn conn = bracket (return conn) (\_ -> return ())
+
+-- |Prepare a simple postgresql connection for use by the postgresql
+-- session store. This basically wraps the connection along with a mutex
+-- to ensure transactions work correctly. Connections used this way must
+-- not be used anywhere else for the duration of the session store!
+-- It is recommended to use a connection pool instead. To use a connection
+-- pool, you simply need to implement the WithPostgreSQLConn type class.
+fromSimpleConnection :: Connection -> IO SimpleConnection
+fromSimpleConnection connection = do
+    mvar <- newMVar ()
+    return $ SimpleConnection (mvar, connection)
+
+newtype SimpleConnection = SimpleConnection (MVar (), Connection)
+
+instance WithPostgreSQLConn SimpleConnection where
+    withPostgreSQLConn (SimpleConnection (mvar, conn)) =
+        bracket (takeMVar mvar >> return conn) (\_ -> putMVar mvar ())
 
 qryCreateTable1 :: Query
 qryCreateTable1         = "CREATE TABLE wai_pg_sessions (id bigserial NOT NULL, session_key character varying NOT NULL, session_created_at bigint NOT NULL, session_last_access bigint NOT NULL, session_invalidate_key boolean NOT NULL DEFAULT false, CONSTRAINT session_pkey PRIMARY KEY (id), CONSTRAINT session_session_key_key UNIQUE (session_key)) WITH ( OIDS=FALSE );"
