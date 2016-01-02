@@ -123,7 +123,7 @@ dbStore pool stos = do
             unerror $ do
                 void $ execute_ conn qryCreateTable1
                 void $ execute_ conn qryCreateTable2
-                (storeSettingsLog stos) "Created tables."
+                storeSettingsLog stos "Created tables."
     return $ dbStore' pool stos
 
 -- |Delete expired sessions from the database.
@@ -189,7 +189,7 @@ clearSession :: (WithPostgreSQLConn a) => a -> B.ByteString -> Request -> IO ()
 clearSession pool cookieName req = do
     let map         = [] :: [(k, v)]
         map'        = "" -- encode map
-        cookies     = fmap parseCookies $ lookup (fromString "Cookie") (requestHeaders req)
+        cookies     = parseCookies <$> lookup (fromString "Cookie") (requestHeaders req)
         Just key    = lookup cookieName =<< cookies
     withPostgreSQLConn pool $ \ conn ->
         withTransaction conn $ do
@@ -197,10 +197,10 @@ clearSession pool cookieName req = do
             void $ execute conn qryInvalidateSess2 (Only key)
 
 backend :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> B.ByteString -> Int64 -> IO (Session m k v, IO B.ByteString)
-backend pool stos key sessionPgId = do
+backend pool stos key sessionPgId =
     return ( (
-        (reader pool key sessionPgId)
-      , (writer pool key sessionPgId) ), withPostgreSQLConn pool $ \conn -> do
+        reader pool key sessionPgId
+      , writer pool key sessionPgId ), withPostgreSQLConn pool $ \conn -> do
         [Only shouldNewKey] <- query conn qryCheckNewKey (Only key)
         if shouldNewKey then do
             newKey' <- storeSettingsKeyGen stos
