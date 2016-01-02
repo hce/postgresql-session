@@ -1,3 +1,8 @@
+0.2.0.0 / 2016-01-02
+--------------------
+
+- Use two PostgreSQL tables, store each session id/key pair in its own db row
+
 0.1.1.1 / 2016-01-01
 --------------------
 
