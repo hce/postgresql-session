@@ -126,37 +126,37 @@ qryCreateSession        = "INSERT INTO wai_pg_sessions (session_key, session_cre
 qryCreateSessionEntry :: Query
 qryCreateSessionEntry   = "INSERT INTO wai_pg_session_data (wai_pg_session,key,value) VALUES (?,?,?)"
 
-qryUpdateSession :: Query
+qryUpdateSession       :: Query
 qryUpdateSession        = "UPDATE wai_pg_sessions SET session_last_access=? WHERE id=?"
 
-qryUpdateSessionEntry :: Query
+qryUpdateSessionEntry  :: Query
 qryUpdateSessionEntry   = "UPDATE wai_pg_session_data SET value=? WHERE wai_pg_session=? AND key=?"
 
-qryLookupSession :: Query
+qryLookupSession       :: Query
 qryLookupSession        = "SELECT id FROM wai_pg_sessions WHERE session_key=? AND session_last_access>=?"
 
-qryLookupSession' :: Query
+qryLookupSession'      :: Query
 qryLookupSession'       = "UPDATE wai_pg_sessions SET session_last_access=? WHERE id=?"
 
-qryLookupSession'' :: Query
+qryLookupSession''     :: Query
 qryLookupSession''      = "SELECT value FROM wai_pg_session_data WHERE wai_pg_session=? AND key=?"
 
-qryLookupSession''' :: Query
+qryLookupSession'''    :: Query
 qryLookupSession'''     = "SELECT id FROM wai_pg_session_data WHERE wai_pg_session=? AND key=?"
 
-qryPurgeOldSessions :: Query
+qryPurgeOldSessions    :: Query
 qryPurgeOldSessions     = "DELETE FROM wai_pg_sessions WHERE session_last_access<?"
 
-qryCheckNewKey :: Query
+qryCheckNewKey         :: Query
 qryCheckNewKey          = "SELECT session_invalidate_key FROM wai_pg_sessions WHERE session_key=?"
 
-qryInvalidateSess1 :: Query
+qryInvalidateSess1     :: Query
 qryInvalidateSess1      = "UPDATE wai_pg_sessions SET session_invalidate_key=TRUE WHERE session_key=?"
 
-qryInvalidateSess2 :: Query
+qryInvalidateSess2     :: Query
 qryInvalidateSess2      = "DELETE FROM wai_pg_session_data WHERE wai_pg_session=(SELECT id FROM wai_pg_sessions WHERE session_key=?)"
 
-qryUpdateKey :: Query
+qryUpdateKey           :: Query
 qryUpdateKey            = "UPDATE wai_pg_sessions SET session_key=?,session_invalidate_key=FALSE WHERE session_key=?"
 
 -- |Create a new postgresql backed wai session store.
