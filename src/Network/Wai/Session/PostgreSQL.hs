@@ -246,6 +246,10 @@ backend pool stos key sessionPgId =
     return ( (
         reader pool key sessionPgId
       , writer pool key sessionPgId ), withPostgreSQLConn pool $ \conn -> do
+        -- Update session access time
+        curtime <- liftIO getPOSIXTime
+        void $ execute conn qryLookupSession' (round curtime :: Int64, sessionPgId)
+
         [Only shouldNewKey] <- query conn qryCheckNewKey (Only key)
         if shouldNewKey then do
             newKey' <- storeSettingsKeyGen stos
@@ -258,9 +262,7 @@ backend pool stos key sessionPgId =
 
 reader :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> Int64 -> k -> m (Maybe v)
 reader pool key sessionPgId k = do
-    curtime <- liftIO getPOSIXTime
     res <- liftIO $ withPostgreSQLConn pool $ \conn -> do
-        void $ execute conn qryLookupSession' (round curtime :: Int64, sessionPgId)
         query conn qryLookupSession'' (sessionPgId, Binary $ encode k)
     case res of
         [Only value]    -> case decode (fromBinary value) of
@@ -270,7 +272,6 @@ reader pool key sessionPgId k = do
 
 writer :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> Int64 -> k -> v -> m ()
 writer pool key sessionPgId k v = do
-    curtime <- liftIO getPOSIXTime
     let k' = Binary $ encode k
         v' = Binary $ encode v
     liftIO $ withPostgreSQLConn pool $ \conn ->
@@ -279,7 +280,6 @@ writer pool key sessionPgId k v = do
             case res of
                 [Only id]   -> void $ execute conn qryUpdateSessionEntry (v', sessionPgId, k')
                 _           -> void $ execute conn qryCreateSessionEntry (sessionPgId, k', v')
-            void $ execute conn qryUpdateSession (round curtime :: Int64, sessionPgId)
 
 ignoreSqlError :: SqlError -> IO ()
 ignoreSqlError _ = return ()
