@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+
 module Network.Wai.Session.PostgreSQL
     ( clearSession
     , dbStore
@@ -19,6 +21,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.Default
 import Data.Int (Int64)
+import Data.Pool (Pool, withResource)
 import Data.Serialize (encode, decode, Serialize)
 import Data.String (fromString)
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -87,6 +90,9 @@ newtype SimpleConnection = SimpleConnection (MVar (), Connection)
 instance WithPostgreSQLConn SimpleConnection where
     withPostgreSQLConn (SimpleConnection (mvar, conn)) =
         bracket (takeMVar mvar >> return conn) (\_ -> putMVar mvar ())
+
+instance WithPostgreSQLConn (Pool Connection) where
+    withPostgreSQLConn = withResource
 
 qryCreateTable1 :: Query
 qryCreateTable1         = "CREATE TABLE wai_pg_sessions (id bigserial NOT NULL, session_key character varying NOT NULL, session_created_at bigint NOT NULL, session_last_access bigint NOT NULL, session_invalidate_key boolean NOT NULL DEFAULT false, CONSTRAINT session_pkey PRIMARY KEY (id), CONSTRAINT session_session_key_key UNIQUE (session_key)) WITH ( OIDS=FALSE );"
