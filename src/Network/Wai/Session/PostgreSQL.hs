@@ -1,8 +1,24 @@
 {-# LANGUAGE FlexibleInstances #-}
 
+-- |
+-- Module: Network.Wai.Session.PostgreSQL
+-- Copyright: (C) 2015, Hans-Christian Esperer
+-- License: BSD3
+-- Maintainer: Hans-Christian Esperer <hc@hcesperer.org>
+-- Stability: experimental
+-- Portability: portable
+--
+-- Simple PostgreSQL backed wai-session backend. This module allows you to store
+-- session data of wai-sessions in a PostgreSQL database. Two tables are kept, one
+-- to store the session's metadata and one to store key,value pairs for each session.
+-- All keys and values are stored as bytea values in the postgresql database using
+-- haskell's cereal module to serialize and deserialize them.
+--
+-- Please note that the module does not let you configure the names of the database
+-- tables. It is recommended to use this module with its own database schema.
 module Network.Wai.Session.PostgreSQL
-    ( clearSession
-    , dbStore
+    ( dbStore
+    , clearSession
     , defaultSettings
     , fromSimpleConnection
     , purgeOldSessions
@@ -85,6 +101,10 @@ fromSimpleConnection connection = do
     mvar <- newMVar ()
     return $ SimpleConnection (mvar, connection)
 
+-- |A simple PostgreSQL connection stored together with a mutex that
+-- prevents from running more than one postgresql transaction at
+-- the same time. It is recommended to use a connection pool
+-- instead for larger sites.
 newtype SimpleConnection = SimpleConnection (MVar (), Connection)
 
 instance WithPostgreSQLConn SimpleConnection where
