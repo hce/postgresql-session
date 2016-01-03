@@ -6,8 +6,8 @@ homepage:            https://github.com/hce/postgresql-session#readme
 bug-reports:         https://github.com/hce/postgresql-session/issues
 license:             BSD3
 license-file:        LICENSE
-author:              Hans-Christian Esperer hc@hcesperer.org
-maintainer:          Hans-Christian Esperer hc@hcesperer.org
+author:              Hans-Christian Esperer <hc@hcesperer.org>
+maintainer:          Hans-Christian Esperer <hc@hcesperer.org>
 copyright:           2015 Hans-Christian Esperer
 stability:           experimental
 tested-with:         GHC == 7.10.2
