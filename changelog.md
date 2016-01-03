@@ -1,3 +1,8 @@
+0.2.0.1 / 2016-01-03
+--------------------
+
+- Add an instance declaration for Data.Pool connection pools, so they can be used directly with wai-postgresql-session
+
 0.2.0.0 / 2016-01-02
 --------------------
 
