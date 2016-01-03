@@ -212,7 +212,7 @@ dbStore' pool stos Nothing = do
     newKey <- storeSettingsKeyGen stos
     curtime <- liftIO getPOSIXTime
     sessionPgId <- withPostgreSQLConn pool $ \ conn -> do
-        [Only res] <- query conn qryCreateSession (newKey, round curtime :: Int64, curtime) :: IO [Only Int64]
+        [Only res] <- query conn qryCreateSession (newKey, round curtime :: Int64, round curtime :: Int64) :: IO [Only Int64]
         return (res :: Int64)
     backend pool stos newKey sessionPgId
 dbStore' pool stos (Just key) = do
