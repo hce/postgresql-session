@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception.Base (assert)
 import Control.Monad
 import Data.Default (def)
@@ -17,8 +18,8 @@ main :: IO ()
 main = do
     conn <- dbconnect
     conn' <- fromSimpleConnection conn
-    store <- dbStore conn' def
-    purger conn' def
+    store <- dbStore conn' testSettings
+    purger conn' testSettings
 
     ((lookupSess1, insertSess1), mknewsessid) <- store Nothing
     sessid <- mknewsessid
@@ -46,9 +47,18 @@ main = do
     assert (newsessid2 /= newsessid) it
     assert (newsessid2 /= invalidsessid) it
 
-    l3 <- lookupSess3 "foo"
-    assert (l3 == Nothing) it
+    l4 <- lookupSess3 "foo"
+    assert (l4 == Nothing) it
 
+    ((lookupSess4, insertSess4), mknewsessid) <- store $ Just sessid
+    l5 <- lookupSess4 "foo"
+    assert (l5 == (Just "bar")) it
+
+    threadDelay 6000000
+
+    ((lookupSess5, insertSess5), mknewsessid) <- store $ Just sessid
+    l6 <- lookupSess5 "foo"
+    assert (l6 == Nothing) it
 
 it :: IO ()
 it = return ()
@@ -62,3 +72,6 @@ dbconnect = do
         , connectPassword = "omed"
         , connectDatabase = "demodb" }
     connectPostgreSQL $ postgreSQLConnectionString connectInfo
+
+testSettings :: StoreSettings
+testSettings = def { storeSettingsSessionTimeout=5 }
