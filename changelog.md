@@ -1,3 +1,8 @@
+0.2.0.4 / 2016-01-09
+--------------------
+
+- Make compatible with the newest versions of wai (3.2.0) and time (1.6)
+
 0.2.0.1 / 2016-01-03
 --------------------
 
