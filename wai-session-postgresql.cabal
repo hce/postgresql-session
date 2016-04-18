@@ -1,5 +1,5 @@
 name:                wai-session-postgresql
-version:             0.2.0.4
+version:             0.2.0.5
 synopsis:            PostgreSQL backed Wai session store
 description:         Provides a PostgreSQL backed session store for the Network.Wai.Session interface.
 homepage:            https://github.com/hce/postgresql-session#readme
@@ -23,7 +23,7 @@ library
                      , bytestring >= 0.10.0.2 && < 0.11
                      , cereal >= 0.4.1 && < 0.6
                      , cookie >= 0.4.1 && < 0.5
-                     , data-default >= 0.5.1 && < 0.6
+                     , data-default >= 0.5.1 && < 0.7
                      , entropy >= 0.3 && < 0.4
                      , postgresql-simple >= 0.4.0 && < 0.6
                      , resource-pool >= 0.2.3 && < 0.3
