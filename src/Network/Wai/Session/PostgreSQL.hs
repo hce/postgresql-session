@@ -118,6 +118,9 @@ instance WithPostgreSQLConn (Pool Connection) where
 qryCreateTable1 :: Query
 qryCreateTable1         = "CREATE TABLE wai_pg_sessions (id bigserial NOT NULL, session_key character varying NOT NULL, session_created_at bigint NOT NULL, session_last_access bigint NOT NULL, session_invalidate_key boolean NOT NULL DEFAULT false, CONSTRAINT wai_pg_sessions_pkey PRIMARY KEY (id), CONSTRAINT wai_pg_sessions_session_key UNIQUE (session_key)) WITH ( OIDS=FALSE );"
 
+qryCreateIndex1 :: Query
+qryCreateIndex1         = "CREATE INDEX idx_session_last_access ON public.wai_pg_sessions USING btree (session_last_access);"
+
 qryCreateTable2 :: Query
 qryCreateTable2         = "CREATE TABLE wai_pg_session_data ( id bigserial NOT NULL, wai_pg_session bigint, key bytea, value bytea, CONSTRAINT wai_pg_session_data_pkey PRIMARY KEY (id), CONSTRAINT wai_pg_session_data_wai_pg_session_fkey FOREIGN KEY (wai_pg_session) REFERENCES wai_pg_sessions (id) MATCH SIMPLE ON UPDATE RESTRICT ON DELETE CASCADE, CONSTRAINT wai_pg_session_data_wai_pg_session_key_key UNIQUE (wai_pg_session, key) ) WITH (OIDS=FALSE);"
 
@@ -168,6 +171,7 @@ dbStore pool stos = do
             unerror $ do
                 void $ execute_ conn qryCreateTable1
                 void $ execute_ conn qryCreateTable2
+                void $ execute_ conn qryCreateIndex1
                 storeSettingsLog stos "Created tables."
     return $ dbStore' pool stos
 
