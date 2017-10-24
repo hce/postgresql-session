@@ -10,8 +10,8 @@ addons:
     packages:
     - libgmp-dev
     - libpq-dev
-    - zlib-devel
-    - libxml2-devel
+    - zlib1g-dev
+    - libxml2-dev
   postgresql: "9.1"
 
 services:
