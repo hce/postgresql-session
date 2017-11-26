@@ -1,3 +1,13 @@
+0.2.1.2 / 2017-11-26
+--------------------
+
+- Remove version dependencies from cabal file, to be handled by the stackage ecosystem henceforth
+
+0.2.1.1 / 2017-10-24
+--------------------
+
+- Create an index to enhance session expiration performance
+
 0.2.1.0 / 2016-05-27
 --------------------
 
