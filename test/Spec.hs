@@ -24,6 +24,10 @@ spec = describe "Network.Wai.Session.PostgreSQL" $ it "handles sessions" $ do
     sessid <- mknewsessid
 
     -- insert
+    insertSess1 ("foo" :: B.ByteString) ("foo" :: B.ByteString)
+    lookupSess1 "foo" `shouldReturn` Just "foo"
+
+    -- update
     insertSess1 ("foo" :: B.ByteString) ("bar" :: B.ByteString)
     lookupSess1 "foo" `shouldReturn` Just "bar"
 
