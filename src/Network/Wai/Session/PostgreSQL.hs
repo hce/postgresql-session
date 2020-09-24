@@ -127,11 +127,8 @@ qryCreateTable2         = "CREATE TABLE IF NOT EXISTS wai_pg_session_data ( id b
 qryCreateSession :: Query
 qryCreateSession        = "INSERT INTO wai_pg_sessions (session_key, session_created_at, session_last_access) VALUES (?,?,?) RETURNING id"
 
-qryCreateSessionEntry :: Query
-qryCreateSessionEntry   = "INSERT INTO wai_pg_session_data (wai_pg_session,key,value) VALUES (?,?,?)"
-
-qryUpdateSessionEntry  :: Query
-qryUpdateSessionEntry   = "UPDATE wai_pg_session_data SET value=? WHERE wai_pg_session=? AND key=?"
+qryCreateOrUpdateSessionEntry :: Query
+qryCreateOrUpdateSessionEntry = "INSERT INTO wai_pg_session_data (wai_pg_session,key,value) VALUES (?,?,?) ON CONFLICT (wai_pg_session,key) DO UPDATE SET value=EXCLUDED.value"
 
 qryLookupSession       :: Query
 qryLookupSession        = "SELECT id FROM wai_pg_sessions WHERE session_key=? AND session_last_access>=?"
@@ -141,9 +138,6 @@ qryLookupSession'       = "UPDATE wai_pg_sessions SET session_last_access=? WHER
 
 qryLookupSession''     :: Query
 qryLookupSession''      = "SELECT value FROM wai_pg_session_data WHERE wai_pg_session=? AND key=?"
-
-qryLookupSession'''    :: Query
-qryLookupSession'''     = "SELECT id FROM wai_pg_session_data WHERE wai_pg_session=? AND key=?"
 
 qryPurgeOldSessions    :: Query
 qryPurgeOldSessions     = "DELETE FROM wai_pg_sessions WHERE session_last_access<?"
@@ -275,11 +269,7 @@ writer pool key sessionPgId k v = do
     let k' = Binary $ encode k
         v' = Binary $ encode v
     liftIO $ withPostgreSQLConn pool $ \conn ->
-        withTransaction conn $ do
-            res <- query conn qryLookupSession''' (sessionPgId, k') :: IO [Only Int64]
-            case res of
-                [Only id]   -> void $ execute conn qryUpdateSessionEntry (v', sessionPgId, k')
-                _           -> void $ execute conn qryCreateSessionEntry (sessionPgId, k', v')
+        void $ execute conn qryCreateOrUpdateSessionEntry (sessionPgId, k', v')
 
 ignoreSqlError :: SqlError -> IO ()
 ignoreSqlError _ = return ()
