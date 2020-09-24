@@ -130,9 +130,6 @@ qryCreateSession        = "INSERT INTO wai_pg_sessions (session_key, session_cre
 qryCreateSessionEntry :: Query
 qryCreateSessionEntry   = "INSERT INTO wai_pg_session_data (wai_pg_session,key,value) VALUES (?,?,?)"
 
-qryUpdateSession       :: Query
-qryUpdateSession        = "UPDATE wai_pg_sessions SET session_last_access=? WHERE id=?"
-
 qryUpdateSessionEntry  :: Query
 qryUpdateSessionEntry   = "UPDATE wai_pg_session_data SET value=? WHERE wai_pg_session=? AND key=?"
 
