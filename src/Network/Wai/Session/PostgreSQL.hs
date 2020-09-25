@@ -116,25 +116,19 @@ instance WithPostgreSQLConn (Pool Connection) where
     withPostgreSQLConn = withResource
 
 qryCreateTable1 :: Query
-qryCreateTable1         = "CREATE TABLE wai_pg_sessions (id bigserial NOT NULL, session_key character varying NOT NULL, session_created_at bigint NOT NULL, session_last_access bigint NOT NULL, session_invalidate_key boolean NOT NULL DEFAULT false, CONSTRAINT wai_pg_sessions_pkey PRIMARY KEY (id), CONSTRAINT wai_pg_sessions_session_key UNIQUE (session_key)) WITH ( OIDS=FALSE );"
+qryCreateTable1         = "CREATE TABLE IF NOT EXISTS wai_pg_sessions (id bigserial NOT NULL, session_key character varying NOT NULL, session_created_at bigint NOT NULL, session_last_access bigint NOT NULL, session_invalidate_key boolean NOT NULL DEFAULT false, CONSTRAINT wai_pg_sessions_pkey PRIMARY KEY (id), CONSTRAINT wai_pg_sessions_session_key UNIQUE (session_key)) WITH ( OIDS=FALSE );"
 
 qryCreateIndex1 :: Query
-qryCreateIndex1         = "CREATE INDEX idx_session_last_access ON public.wai_pg_sessions USING btree (session_last_access);"
+qryCreateIndex1         = "CREATE INDEX IF NOT EXISTS idx_session_last_access ON public.wai_pg_sessions USING btree (session_last_access);"
 
 qryCreateTable2 :: Query
-qryCreateTable2         = "CREATE TABLE wai_pg_session_data ( id bigserial NOT NULL, wai_pg_session bigint, key bytea, value bytea, CONSTRAINT wai_pg_session_data_pkey PRIMARY KEY (id), CONSTRAINT wai_pg_session_data_wai_pg_session_fkey FOREIGN KEY (wai_pg_session) REFERENCES wai_pg_sessions (id) MATCH SIMPLE ON UPDATE RESTRICT ON DELETE CASCADE, CONSTRAINT wai_pg_session_data_wai_pg_session_key_key UNIQUE (wai_pg_session, key) ) WITH (OIDS=FALSE);"
+qryCreateTable2         = "CREATE TABLE IF NOT EXISTS wai_pg_session_data ( id bigserial NOT NULL, wai_pg_session bigint, key bytea, value bytea, CONSTRAINT wai_pg_session_data_pkey PRIMARY KEY (id), CONSTRAINT wai_pg_session_data_wai_pg_session_fkey FOREIGN KEY (wai_pg_session) REFERENCES wai_pg_sessions (id) MATCH SIMPLE ON UPDATE RESTRICT ON DELETE CASCADE, CONSTRAINT wai_pg_session_data_wai_pg_session_key_key UNIQUE (wai_pg_session, key) ) WITH (OIDS=FALSE);"
 
 qryCreateSession :: Query
 qryCreateSession        = "INSERT INTO wai_pg_sessions (session_key, session_created_at, session_last_access) VALUES (?,?,?) RETURNING id"
 
-qryCreateSessionEntry :: Query
-qryCreateSessionEntry   = "INSERT INTO wai_pg_session_data (wai_pg_session,key,value) VALUES (?,?,?)"
-
-qryUpdateSession       :: Query
-qryUpdateSession        = "UPDATE wai_pg_sessions SET session_last_access=? WHERE id=?"
-
-qryUpdateSessionEntry  :: Query
-qryUpdateSessionEntry   = "UPDATE wai_pg_session_data SET value=? WHERE wai_pg_session=? AND key=?"
+qryCreateOrUpdateSessionEntry :: Query
+qryCreateOrUpdateSessionEntry = "INSERT INTO wai_pg_session_data (wai_pg_session,key,value) VALUES (?,?,?) ON CONFLICT (wai_pg_session,key) DO UPDATE SET value=EXCLUDED.value"
 
 qryLookupSession       :: Query
 qryLookupSession        = "SELECT id FROM wai_pg_sessions WHERE session_key=? AND session_last_access>=?"
@@ -144,9 +138,6 @@ qryLookupSession'       = "UPDATE wai_pg_sessions SET session_last_access=? WHER
 
 qryLookupSession''     :: Query
 qryLookupSession''      = "SELECT value FROM wai_pg_session_data WHERE wai_pg_session=? AND key=?"
-
-qryLookupSession'''    :: Query
-qryLookupSession'''     = "SELECT id FROM wai_pg_session_data WHERE wai_pg_session=? AND key=?"
 
 qryPurgeOldSessions    :: Query
 qryPurgeOldSessions     = "DELETE FROM wai_pg_sessions WHERE session_last_access<?"
@@ -167,12 +158,11 @@ qryUpdateKey            = "UPDATE wai_pg_sessions SET session_key=?,session_inva
 dbStore :: (WithPostgreSQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> IO (SessionStore m k v)
 dbStore pool stos = do
     when (storeSettingsCreateTable stos) $
-        withPostgreSQLConn pool $ \ conn ->
-            unerror $ do
-                void $ execute_ conn qryCreateTable1
-                void $ execute_ conn qryCreateTable2
-                void $ execute_ conn qryCreateIndex1
-                storeSettingsLog stos "Created tables."
+        withPostgreSQLConn pool $ \ conn -> do
+            void $ execute_ conn qryCreateTable1
+            void $ execute_ conn qryCreateTable2
+            void $ execute_ conn qryCreateIndex1
+            storeSettingsLog stos "Created tables."
     return $ dbStore' pool stos
 
 -- |Delete expired sessions from the database.
@@ -279,11 +269,7 @@ writer pool key sessionPgId k v = do
     let k' = Binary $ encode k
         v' = Binary $ encode v
     liftIO $ withPostgreSQLConn pool $ \conn ->
-        withTransaction conn $ do
-            res <- query conn qryLookupSession''' (sessionPgId, k') :: IO [Only Int64]
-            case res of
-                [Only id]   -> void $ execute conn qryUpdateSessionEntry (v', sessionPgId, k')
-                _           -> void $ execute conn qryCreateSessionEntry (sessionPgId, k', v')
+        void $ execute conn qryCreateOrUpdateSessionEntry (sessionPgId, k', v')
 
 ignoreSqlError :: SqlError -> IO ()
 ignoreSqlError _ = return ()
