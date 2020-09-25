@@ -1,3 +1,10 @@
+0.2.1.3 / 2020-09-25
+--------------------
+
+Two changes by Simon Hengel/@sol
+- Fix a concurrency bug
+- Cleanups / proper test suite declarations
+
 0.2.1.2 / 2017-11-26
 --------------------
 
